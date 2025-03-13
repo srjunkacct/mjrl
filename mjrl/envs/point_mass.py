@@ -1,6 +1,7 @@
-import numpy as np
-from gym import utils
+from gymnasium import utils
 from mjrl.envs import mujoco_env
+import numpy as np
+import os
 from mujoco_py import MjViewer
 
 
@@ -8,8 +9,9 @@ class PointMassEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
         self.agent_bid = 0
         self.target_sid = 0
+        self.asset_path = os.path.join(os.path.dirname(__file__), 'assets/point_mass.xml')
         utils.EzPickle.__init__(self)
-        mujoco_env.MujocoEnv.__init__(self, 'point_mass.xml', 5)
+        mujoco_env.MujocoEnv.__init__(self, self.asset_path, 5)
         self.agent_bid = self.sim.model.body_name2id('agent')
         self.target_sid = self.sim.model.site_name2id('target')
 
@@ -17,7 +19,10 @@ class PointMassEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         self.do_simulation(a, self.frame_skip)
         obs = self.get_obs()
         reward = self.get_reward(obs)
-        return obs, reward, False, dict(solved=(reward > -0.1), state=self.get_env_state())
+        terminated = False  # This environment doesn't have a natural termination condition
+        truncated = False  # This will be handled by the TimeLimit wrapper
+        info = dict(solved=(reward > -0.1), state=self.get_env_state())
+        return obs, reward, terminated, truncated, info
 
     def get_obs(self):
         agent_pos = self.data.body_xpos[self.agent_bid].ravel()

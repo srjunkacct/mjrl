@@ -1,11 +1,13 @@
-import numpy as np
-from gym import utils
+from gymnasium import utils
 from mjrl.envs import mujoco_env
+import numpy as np
+import os
 from mujoco_py import MjViewer
 
 class SwimmerEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
-        mujoco_env.MujocoEnv.__init__(self, 'swimmer.xml', 5)
+        self.asset_path = os.path.join(os.path.dirname(__file__), 'assets/swimmer.xml')
+        mujoco_env.MujocoEnv.__init__(self, self.asset_path, 4)
         utils.EzPickle.__init__(self)
 
     def step(self, a):
@@ -16,10 +18,12 @@ class SwimmerEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         delta = (xposafter - xposbefore)
         # make agent move in the negative x direction
         reward = -10.0 * delta
-        done = False
+        terminated = False  # This environment doesn't have a natural termination condition
+        truncated = False  # This will be handled by the TimeLimit wrapper
+        info = self.get_env_infos()
 
         ob = self.get_obs()
-        return ob, reward, done, self.get_env_infos()
+        return ob, reward, terminated, truncated, info
 
     def get_obs(self):
         return np.concatenate([

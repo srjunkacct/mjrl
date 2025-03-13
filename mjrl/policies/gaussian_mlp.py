@@ -19,7 +19,11 @@ class MLP:
         """
         self.n = env_spec.observation_dim  # number of states
         self.m = env_spec.action_dim  # number of actions
+        self.obs_dim = env_spec.observation_dim  # Add this for test compatibility
+        self.act_dim = env_spec.action_dim  # Add this for test compatibility
+        self.hidden_sizes = hidden_sizes  # Add this for test compatibility
         self.min_log_std = min_log_std
+        self.action_space = env_spec.action_space  # Add this for action clipping
 
         # Set seed
         # ------------------------
@@ -94,7 +98,29 @@ class MLP:
         mean = self.model(self.obs_var).data.numpy().ravel()
         noise = np.exp(self.log_std_val) * np.random.randn(self.m)
         action = mean + noise
+        # Clip action to be within action space bounds
+        action = np.clip(action, self.action_space.low, self.action_space.high)
         return [action, {'mean': mean, 'log_std': self.log_std_val, 'evaluation': mean}]
+
+    def get_action_batch(self, observations):
+        """Process a batch of observations and return actions."""
+        if len(observations.shape) == 1:
+            observations = observations.reshape(1, -1)
+        obs_tensor = torch.from_numpy(observations.astype(np.float32))
+        with torch.no_grad():
+            means = self.model(obs_tensor).numpy()
+        
+        # Generate noise for each observation
+        noise = np.exp(self.log_std_val) * np.random.randn(observations.shape[0], self.m)
+        actions = means + noise
+        
+        # Clip actions to be within bounds
+        actions = np.clip(actions, self.action_space.low, self.action_space.high)
+        
+        # Create info dictionaries for each action
+        infos = [{'mean': mean, 'log_std': self.log_std_val, 'evaluation': mean} for mean in means]
+        
+        return actions, infos
 
     def mean_LL(self, observations, actions, model=None, log_std=None):
         model = self.model if model is None else model

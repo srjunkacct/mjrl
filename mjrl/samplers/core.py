@@ -62,7 +62,7 @@ def do_rollout(
         agent_infos = []
         env_infos = []
 
-        o = env.reset()
+        o, _ = env.reset()  # Unpack observation from reset tuple
         done = False
         t = 0
 
@@ -71,7 +71,8 @@ def do_rollout(
             if eval_mode:
                 a = agent_info['evaluation']
             env_info_base = env.get_env_infos()
-            next_o, r, done, env_info_step = env.step(a)
+            next_o, r, terminated, truncated, env_info_step = env.step(a)  # Handle new step API
+            done = terminated or truncated  # Combine terminated and truncated
             # below is important to ensure correct env_infos for the timestep
             env_info = env_info_step if env_info_base == {} else env_info_base
             observations.append(o)

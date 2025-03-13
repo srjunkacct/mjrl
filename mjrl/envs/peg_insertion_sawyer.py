@@ -1,24 +1,29 @@
-import numpy as np
-from gym import utils
+from gymnasium import utils
 from mjrl.envs import mujoco_env
+import numpy as np
+import os
 from mujoco_py import MjViewer
 
 
-class PegEnv(mujoco_env.MujocoEnv, utils.EzPickle):
+class PegInsertionSawyerEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
-        self.peg_sid = -2
-        self.target_sid = -1
-        mujoco_env.MujocoEnv.__init__(self, 'peg_insertion.xml', 4)
+        self.asset_path = os.path.join(os.path.dirname(__file__), 'assets/peg_insertion.xml')
+        self.peg_sid = -2  # Initialize before MujocoEnv.__init__
+        self.target_sid = -1  # Initialize before MujocoEnv.__init__
+        mujoco_env.MujocoEnv.__init__(self, self.asset_path, 2)
         utils.EzPickle.__init__(self)
-        self.peg_sid = self.model.site_name2id("peg_bottom")
-        self.target_sid = self.model.site_name2id("target")
+        self.peg_sid = self.model.site_name2id("peg_bottom")  # Update with actual site ID
+        self.target_sid = self.model.site_name2id("target")  # Update with actual site ID
         self.init_body_pos = self.model.body_pos.copy()
 
     def step(self, a):
         self.do_simulation(a, self.frame_skip)
         obs = self.get_obs()
         reward = self.get_reward(obs, a)
-        return obs, reward, False, self.get_env_infos()
+        terminated = False  # This environment doesn't have a natural termination condition
+        truncated = False  # This will be handled by the TimeLimit wrapper
+        info = self.get_env_infos()
+        return obs, reward, terminated, truncated, info
 
     def get_obs(self):
         return np.concatenate([

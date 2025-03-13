@@ -1,10 +1,9 @@
 import os
-
-from gym import error, spaces
-from gym.utils import seeding
+from gymnasium import error, spaces
+from gymnasium.utils import seeding
 import numpy as np
 from os import path
-import gym
+import gymnasium as gym
 import six
 import time as timer
 
@@ -24,49 +23,70 @@ def get_sim(model_path):
     model = load_model_from_path(fullpath)
     return MjSim(model)
 
+def convert_observation_to_space(observation):
+    if isinstance(observation, dict):
+        space = spaces.Dict(OrderedDict([
+            (key, convert_observation_to_space(value))
+            for key, value in observation.items()
+        ]))
+    elif isinstance(observation, np.ndarray):
+        low = np.full(observation.shape, -float('inf'))
+        high = np.full(observation.shape, float('inf'))
+        space = spaces.Box(low, high, dtype=observation.dtype)
+    else:
+        raise NotImplementedError(type(observation), observation)
+
+    return space
+
 class MujocoEnv(gym.Env):
-    """Superclass for all MuJoCo environments.
+    """
+    This is a simplified version of the gym MujocoEnv class.
     """
 
-    def __init__(self, model_path=None, frame_skip=1, sim=None):
-
-        if sim is None:
-            self.sim = get_sim(model_path)
-        else:
-            self.sim = sim
-        self.data = self.sim.data
-        self.model = self.sim.model
-
+    def __init__(self, model_path, frame_skip, rgb_rendering_tracking=True):
+        if not path.exists(model_path):
+            raise IOError("File %s does not exist" % model_path)
         self.frame_skip = frame_skip
+        self.model = mujoco_py.load_model_from_path(model_path)
+        self.sim = mujoco_py.MjSim(self.model)
+        self.data = self.sim.data
+        self.viewer = None
+        self._viewers = {}
+
         self.metadata = {
-            'render.modes': ['human', 'rgb_array'],
-            'video.frames_per_second': int(np.round(1.0 / self.dt))
+            'render_modes': ['human', 'rgb_array'],
+            'render_fps': int(np.round(1.0 / self.dt))
         }
         self.mujoco_render_frames = False
 
-        self.init_qpos = self.data.qpos.ravel().copy()
-        self.init_qvel = self.data.qvel.ravel().copy()
-        try:
-            observation, _reward, done, _info = self.step(np.zeros(self.model.nu))
-        except NotImplementedError:
-            observation, _reward, done, _info = self._step(np.zeros(self.model.nu))
-        assert not done
-        self.obs_dim = np.sum([o.size for o in observation]) if type(observation) is tuple else observation.size
+        self.init_qpos = self.sim.data.qpos.ravel().copy()
+        self.init_qvel = self.sim.data.qvel.ravel().copy()
 
+        self._set_action_space()
+
+        action = self.action_space.sample()
+        observation, _info = self.reset()
+        assert not isinstance(observation, dict)
+        self.obs_dim = observation.size
+
+        self._set_observation_space(observation)
+
+        self._configure_rgb_rendering(rgb_rendering_tracking)
+
+    def _configure_rgb_rendering(self, rgb_rendering_tracking=True):
+        self._rgb_rendering_tracking = rgb_rendering_tracking
+        if self._rgb_rendering_tracking:
+            self._get_viewer('rgb_array')
+
+    def _set_action_space(self):
         bounds = self.model.actuator_ctrlrange.copy()
-        low = bounds[:, 0]
-        high = bounds[:, 1]
-        self.action_space = spaces.Box(low, high, dtype=np.float32)
+        low, high = bounds.T
+        self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
+        return self.action_space
 
-        high = np.inf*np.ones(self.obs_dim)
-        low = -high
-        self.observation_space = spaces.Box(low, high, dtype=np.float32)
-
-        self.seed()
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
+    def _set_observation_space(self, observation):
+        self.observation_space = convert_observation_to_space(observation)
+        return self.observation_space
 
     # methods to override:
     # ----------------------------
@@ -87,7 +107,9 @@ class MujocoEnv(gym.Env):
 
     def viewer_setup(self):
         """
-        Does not work. Use mj_viewer_setup() instead
+        This method is called when the viewer is initialized and after every reset
+        Optionally implement this method, if you need to tinker with camera position
+        and so forth.
         """
         pass
 
@@ -99,17 +121,19 @@ class MujocoEnv(gym.Env):
 
     # -----------------------------
 
-    def reset(self):
+    def reset(self, *, seed=None, options=None):
+        super().reset(seed=seed)
         self.sim.reset()
-        self.sim.forward()
         ob = self.reset_model()
-        return ob
+        if self.viewer is not None:
+            self.viewer_setup()
+        return ob, {}
 
     def set_state(self, qpos, qvel):
         assert qpos.shape == (self.model.nq,) and qvel.shape == (self.model.nv,)
         old_state = self.sim.get_state()
         new_state = mujoco_py.MjSimState(old_state.time, qpos, qvel,
-                                         old_state.act, old_state.udd_state)
+                                        old_state.act, old_state.udd_state)
         self.sim.set_state(new_state)
         self.sim.forward()
 
@@ -117,9 +141,11 @@ class MujocoEnv(gym.Env):
     def dt(self):
         return self.model.opt.timestep * self.frame_skip
 
-    def do_simulation(self, ctrl, n_frames):
-        for i in range(self.model.nu):
-            self.sim.data.ctrl[i] = ctrl[i]
+    def do_simulation(self, ctrl, n_frames=None):
+        if n_frames is None:
+            n_frames = self.frame_skip
+        if self.sim.data.ctrl is not None and ctrl is not None:
+            self.sim.data.ctrl[:] = ctrl
         for _ in range(n_frames):
             self.sim.step()
             if self.mujoco_render_frames is True:
@@ -131,21 +157,51 @@ class MujocoEnv(gym.Env):
         except:
             self.mj_viewer_setup()
             self.viewer._run_speed = 0.5
-            #self.viewer._run_speed /= self.frame_skip
             self.viewer.render()
 
-    def render(self, *args, **kwargs):
-        pass
-        #return self.mj_render()
+    def render(self, mode='human'):
+        if mode == 'rgb_array':
+            self._get_viewer(mode).render()
+            # window size used for old mujoco-py:
+            width, height = 500, 500
+            data = self._get_viewer(mode).read_pixels(width, height, depth=False)
+            # original image is upside-down, so flip it
+            return data[::-1, :, :]
+        elif mode == 'human':
+            self._get_viewer(mode).render()
 
-    def _get_viewer(self):
+    def close(self):
+        if self.viewer is not None:
+            self.viewer = None
+            self._viewers = {}
+
+    def _get_viewer(self, mode):
+        self.viewer = self._viewers.get(mode)
+        if self.viewer is None:
+            if mode == 'human':
+                self.viewer = mujoco_py.MjViewer(self.sim)
+            elif mode == 'rgb_array':
+                self.viewer = mujoco_py.MjRenderContextOffscreen(self.sim, device_id=-1)
+            self._viewer_setup()
+            self._viewers[mode] = self.viewer
+        return self.viewer
+
+    def _viewer_setup(self):
+        """
+        This method is called when the viewer is initialized.
+        Optionally implement this method, if you need to tinker with camera position
+        and so forth.
+        """
         pass
-        #return None
+
+    def get_body_com(self, body_name):
+        return self.data.get_body_xpos(body_name)
 
     def state_vector(self):
-        state = self.sim.get_state()
         return np.concatenate([
-            state.qpos.flat, state.qvel.flat])
+            self.sim.data.qpos.flat,
+            self.sim.data.qvel.flat
+        ])
 
     # -----------------------------
 

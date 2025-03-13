@@ -1,6 +1,7 @@
-import numpy as np
-from gym import utils
+from gymnasium import utils
 from mjrl.envs import mujoco_env
+import numpy as np
+import os
 from mujoco_py import MjViewer
 
 
@@ -8,7 +9,8 @@ class Reacher7DOFEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(self):
         self.hand_sid = -2
         self.target_sid = -1
-        mujoco_env.MujocoEnv.__init__(self, 'sawyer.xml', 4)
+        self.asset_path = os.path.join(os.path.dirname(__file__), 'assets/sawyer.xml')
+        mujoco_env.MujocoEnv.__init__(self, self.asset_path, 4)
         utils.EzPickle.__init__(self)
         self.hand_sid = self.model.site_name2id("finger")
         self.target_sid = self.model.site_name2id("target")
@@ -17,7 +19,10 @@ class Reacher7DOFEnv(mujoco_env.MujocoEnv, utils.EzPickle):
         self.do_simulation(a, self.frame_skip)
         obs = self.get_obs()
         reward = self.get_reward(obs, a)
-        return obs, reward, False, self.get_env_infos()
+        terminated = False  # This environment doesn't have a natural termination condition
+        truncated = False  # This will be handled by the TimeLimit wrapper
+        info = self.get_env_infos()
+        return obs, reward, terminated, truncated, info
 
     def get_obs(self):
         return np.concatenate([

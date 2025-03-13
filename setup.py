@@ -19,4 +19,11 @@ setup(
     long_description=read('README.md'),
     url='https://github.com/aravindr93/mjrl.git',
     author='Aravind Rajeswaran',
+    install_requires=[
+        'gymnasium',  # Latest stable version
+        'mujoco-py>=2.0',  # Keep this for now as requested
+        'numpy',
+        'scipy',
+        'torch>=1.0',
+    ],
 )

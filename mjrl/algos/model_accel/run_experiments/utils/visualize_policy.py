@@ -4,7 +4,7 @@ import trajopt.envs
 import mj_envs
 import click
 import os
-import gym
+import gymnasium
 import numpy as np
 import pickle
 import torch

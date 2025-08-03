@@ -15,7 +15,7 @@ from mjrl.algos.ppo_clip import PPO
 from mjrl.utils.train_agent import train_agent
 import os
 import json
-import gym
+import gymnasium
 import mjrl.envs
 import time as timer
 import pickle
